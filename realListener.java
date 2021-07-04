@@ -1,4 +1,5 @@
 //基本完美
+import java.nio.file.FileSystemLoopException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -15,7 +16,7 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import org.antlr.v4.semantics.SymbolChecks;
 
 class Symtable{
-	public Map<String, String> map;  //符号项目，符号名:类型名,其实这里应该改成“Node”节点才是合理的，但先解决别的问题
+	public Map<String, symNode> map;  //符号项目，符号名:类型名,其实这里应该改成“Node”节点才是合理的，但先解决别的问题
 	public ArrayList<Symtable> children;  //儿子节点
 	public Map <String, Integer > index; //映射函数名,符号名:在children的下标
 	public Symtable parent;  //父亲表
@@ -27,22 +28,22 @@ class Symtable{
 	//如果没有，那么没有定义；变量如果在本block找到定义，那么重复定义；如果是函数，那么不允许任何地方重复定义
 	
 	public Symtable(String name) {
-		map= new HashMap<String,String>();
+		map= new HashMap<String,symNode>();
 		index =new HashMap<String,Integer>();
 		children=new ArrayList<Symtable>();
 	
 		tablename=name;
 	}
 	
-	public void addEntry(String key,String val) {
+	public void addEntry(String key,symNode val) {
 		//key:参数名,val:参数类型
 		if(!map.containsKey(key)) {
 			//index.put(key, children.size());写错乱了。。
 			map.put(key, val);
 		}
-		else  if(map.get(key)=="null") {
+		/*else  if(map.get(key)=="null") {
 			map.put(key, val);
-		}
+		}这是什么？*/
 		else {
 			System.out.println("already exit the Identifier!key:"+key+" val:" + map.get(key));
 		}	
@@ -54,10 +55,10 @@ class Symtable{
 	}
 	static public void tra(Symtable now,int depth) {
 		System.out.println("In depth"+depth+"->Travel the Table: "+now.tablename);
-		Iterator<Map.Entry<String, String>> entries = now.map.entrySet().iterator();
+		Iterator<Map.Entry<String, symNode>> entries = now.map.entrySet().iterator();
 		while (entries.hasNext()) {
-			Map.Entry<String, String> entry = entries.next();
-			System.out.println("Key = " + entry.getKey() + ", Value = " + entry.getValue());
+			Map.Entry<String, symNode> entry = entries.next();
+			System.out.println("Key = " + entry.getKey() + ", Value = " + entry.getValue().type);
 		}
 
 		for(int i=0;i<now.children.size();i++) {
@@ -78,24 +79,16 @@ class Symtable{
 	}
 }
 
-class FuncSymtable extends Symtable{
-    boolean isdefined;
-	public FuncSymtable(String name,boolean defined) {
-		super(name);
-		isdefined=defined; //声明为false，定义为true
-	}
-	
-}
 
-class node{
+class symNode{
 	//作为符号表中的变量
 	public String type; //符号类型,由于不对函数作类型检查，所以不单独设立函数的了
-	public node(String mytype) {
+	public symNode(String mytype) {
 		type=mytype;
 	}
 }
 
-class arrnode extends node{
+class arrnode extends symNode{
 	public int dim;
 	public int totalsize;
 	public ArrayList<Integer> dimList;
@@ -115,6 +108,25 @@ class arrnode extends node{
 		for(int i=0;i<dimList.size();i++) {
 			totalsize*=dimList.get(i);
 		}
+	}
+}
+
+class funcnode extends symNode{
+	public int argnum;//参数数量
+	public String returntype;  //函数返回值类型
+	public ArrayList<String> argtypeList; //参数名类型
+	public funcnode(String mytype) {
+		super(mytype);
+		argnum=0;
+		argtypeList=new ArrayList<String>();
+		// TODO Auto-generated constructor stub
+	}
+	public void addarg(String name) {
+		argtypeList.add(name);
+		argnum++;
+	}
+	public void setReturnType(String type) {
+		returntype=type;
 	}
 }
 
@@ -170,7 +182,7 @@ public class realListener extends CBaseListener{
 	MyNode rootnode;
 	Symtable rootTable;  //符号表根节点
 	Symtable curTable;   //当前表
-	
+	boolean fordeclared;
 	//以下为顶层流程控制部分，包括顺序执行语句块、for循环、if-else、跳转表等等
 	@Override public void enterCompilationUnit(@NotNull CParser.CompilationUnitContext ctx) {
 		store=new Stack<MyNode>();
@@ -181,6 +193,7 @@ public class realListener extends CBaseListener{
 		rootTable=new Symtable("Root");
 		rootTable.parent=null;
 		curTable=rootTable;
+		fordeclared=false;
 	}
 
 	@Override public void exitCompilationUnit(@NotNull CParser.CompilationUnitContext ctx) {
@@ -352,28 +365,40 @@ public class realListener extends CBaseListener{
 		MyNode tmpNode=store.pop();
 		MyNode father=store.peek();
 		father.addchild(tmpNode);
+		fordeclared=false;
 	}
 	@Override public void enterForDeclaration(@NotNull CParser.ForDeclarationContext ctx) {
 		MyNode tmpNode=new MyNode("Loop","fordeclar");//for循环的开头
 		store.add(tmpNode);
-		/*Symtable tmptable=new Symtable("forloop");
+		Symtable tmptable=new Symtable("forloop");
 		curTable.addTable(tmptable);
 		curTable=tmptable;
-		curTable.curtype=ctx.typespecifier().getText();*/
+		curTable.curtype=ctx.typespecifier().getText();
+		System.out.println("new table in forloop!");
+		fordeclared=true;
 	}
 	@Override public void exitForDeclaration(@NotNull CParser.ForDeclarationContext ctx) {
 		//curTable=curTable.parent; 似乎compoundstate会代劳,因此不用
+		MyNode tmpNode=new MyNode("Loop","forcondition");
 		store.pop();
-	}
-	@Override public void enterInitequ(@NotNull CParser.InitequContext ctx) {
 		MyNode father=store.peek();
-		/*if(father.typename=="Loop" && father.operation=="fordeclar")
-			curTable.addEntry(ctx.directDeclarator().getText(), curTable.curtype);*/
+		father.addchild(tmpNode);
+	}
+	@Override public void enterInitequ(@NotNull CParser.InitequContext ctx) { //初始化列表初始变量
+		MyNode father=store.peek();
+		if(father.typename=="Loop" && father.operation=="fordeclar") {
+			symNode newNode=new symNode(curTable.curtype);
+			curTable.addEntry(ctx.directDeclarator().getText(),newNode );
+		}
+			
 	}
 	@Override public void enterInitdirec(@NotNull CParser.InitdirecContext ctx) {
 		MyNode father=store.peek();
-		/*if(father.typename=="Loop" && father.operation=="fordeclar")
-			curTable.addEntry(ctx.directDeclarator().getText(), curTable.curtype);  */
+		if(father.typename=="Loop" && father.operation=="fordeclar") {
+			symNode newNode=new symNode(curTable.curtype);
+			curTable.addEntry(ctx.directDeclarator().getText(),newNode);  
+		}
+			
 	}
 	@Override public void enterForExpression(@NotNull CParser.ForExpressionContext ctx) {
 		
@@ -384,11 +409,6 @@ public class realListener extends CBaseListener{
 	@Override public void exitForExpression(@NotNull CParser.ForExpressionContext ctx) {
 		MyNode tmpNode=store.pop();
 		MyNode father=store.peek();
-		if(father.typename=="Loop" && father.operation=="fordeclar") { //
-			store.pop();
-			father=store.peek(); //补上一个节点
-			father.addchild(new MyNode("Loop","forcondition")); //表示condition是空
-		}
 		//非空则不用补上空;注意这里不是从exp上来的
 		MyNode.transfer(father, tmpNode);	
 	}
@@ -408,7 +428,8 @@ public class realListener extends CBaseListener{
 //goto部分	
 	@Override public void enterLabel(@NotNull CParser.LabelContext ctx) {
 		//定义标识符
-		curTable.addEntry(ctx.Identifier().getText(), "JumpLabel");
+		symNode newnode=new symNode("JumpLabel");
+		curTable.addEntry(ctx.Identifier().getText(),newnode);
 		MyNode tmpNode=new MyNode("JumpLabel",ctx.Identifier().getText());//否则IR生成找不到了
 		MyNode father=store.peek();
 		father.addchild(tmpNode);
@@ -436,7 +457,7 @@ public class realListener extends CBaseListener{
 		MyNode tmpMyNode=new MyNode("Declar");  
 		tmpMyNode.operation="Declar";
 		store.add(tmpMyNode);
-		//curTable.curtype=ctx.typespecifier().getText(); //标明当前声明的类型
+		curTable.curtype=ctx.typespecifier().getText(); //标明当前声明的类型
 		//System.out.println(curTable.curtype);
 	}
 		
@@ -455,17 +476,19 @@ public class realListener extends CBaseListener{
 		if(store.peek().typename=="Declar") {
 			//变量声明或者函数声明部分
 			if(!Symtable.checkRedec(curTable,curtext)) {
-				if(store.peek().operation=="Func") { //声明函数的名称
-					curTable.addEntry(curtext, "Function");
+				if(store.peek().operation=="Func") { //声明函数的名称,
+					symNode newnode=new symNode("Function");
+					curTable.addEntry(curtext, newnode);
 					store.peek().funcname=curtext;
-					/*FuncSymtable newtable=new FuncSymtable(curtext,false);
-					curTable.addTable(newtable);
-					curTable=newtable;*/
 				}
-				else if(store.peek().operation=="Array")  //声明一个数组ok
-					curTable.addEntry(curtext, "Array");
-				else   //声明一个普通变量，应该也是ok的
-					curTable.addEntry(curtext, curTable.curtype);
+				else if(store.peek().operation=="Array") {  //声明一个数组ok
+					symNode newnode=new symNode("Array");
+					curTable.addEntry(curtext, newnode);
+				}
+				else {  //声明一个普通变量，应该也是ok的
+					symNode newnode=new symNode(curTable.curtype);
+					curTable.addEntry(curtext, newnode);
+				}
 			}
 			else {
 				System.out.println("Error2!Re-declared ID: "+curtext);
@@ -475,42 +498,25 @@ public class realListener extends CBaseListener{
 			//函数定义部分,区分函数参数表和函数本身名字
 			if(store.peek().operation=="Func") {		
 				//定义函数本身名字
-				//函数定义的参数表，如果没有声明过，则需要新建一个table!
-				if(!rootTable.map.containsKey(curtext)) {
-					store.peek().funcname=curtext;  //保留函数名信息
-					curTable.addEntry(curtext, curTable.curtype);
-					/*FuncSymtable newtable=new FuncSymtable(curtext,true);
-					curTable.addTable(newtable);
-					curTable=newtable;*/
-				}
-				else {  //定义可覆盖声明，但是不可以覆盖定义;
-					int myindex=curTable.index.get(curtext).intValue();
-					Symtable tmptable=curTable.children.get(myindex);
-					if(tmptable instanceof FuncSymtable) {
-						if( ((FuncSymtable) tmptable).isdefined) { 
-							System.out.println("Error2!Redifined Function: "+curtext);
-							//curTable=tmptable;
-						}
-						else {
-							//curTable=tmptable;
-							//((FuncSymtable) curTable).isdefined=true;
-						}
-					}
-					else {
-						System.out.println("Expected Functable but not!");
-					}
-				}
-				
+				//函数定义的参数表，需要新建一个table!
+				store.peek().funcname=curtext;  //保留函数名信息
+				symNode newnode=new symNode("Function");
+				curTable.addEntry(curtext, newnode);  //curTable.curtype
+				Symtable newtable=new Symtable(curtext);
+				curTable.addTable(newtable);
+				curTable=newtable;
+				System.out.println("new table in Deffunc!");
 			}
 		}
 		else if(store.peek().typename=="Paralist") {//ok
 			//函数声明的参数表，只需要关注类型，不要关注名字
-			if(store.peek().operation=="Declar") {
-				curTable.addEntry(ctx.getText(), "null");
+			if(store.peek().operation=="Declar") {  //改成修改symnode!
+				//curTable.addEntry(ctx.getText(), "null");
 			}
 			//函数定义时的参数表，需要注册名字和类型
 			else if (store.peek().operation=="Deffunc") {
-				curTable.addEntry(ctx.getText(), curTable.curtype);
+				symNode newnode=new symNode( curTable.curtype);
+				curTable.addEntry(ctx.getText(),newnode);
 			}
 		}
 		
@@ -580,7 +586,7 @@ public class realListener extends CBaseListener{
 			//System.out.println("No member!");
 			curTable=curTable.parent;
 		}*/
-		store.peek().funcname=tmpNode.funcname;
+		store.peek().funcname=tmpNode.funcname; //这是什么来着？
 	}
 
 	@Override public void enterParameterDeclaration(@NotNull CParser.ParameterDeclarationContext ctx) {
@@ -606,16 +612,18 @@ public class realListener extends CBaseListener{
 		MyNode father=store.peek();
 		//System.out.println("father is"+father.typename+"  "+father.operation);
 		//目前这里对于if似乎也不用改写
-		if(father.typename!="Deffunc" && father.typename!="Loop") {
+		if(father.typename!="Deffunc" || father.typename=="Loop"&& fordeclared==false) {
 			Symtable newtable=new Symtable(String.valueOf(father.children.size()));
 			//生成一个匿名的孩子
-			/*curTable.addTable(newtable);
-			curTable=newtable;*/
+			curTable.addTable(newtable);
+			curTable=newtable;
+			System.out.println("new table in Compound!");
 		}
 	}
 	
 	@Override public void exitCompoundStatement(@NotNull CParser.CompoundStatementContext ctx) {
-			/*curTable=curTable.parent;*/
+			curTable=curTable.parent;
+			System.out.println("exit table in compound!");
 		
 	}
 	@Override public void exitDirecArr(@NotNull CParser.DirecArrContext ctx) {
