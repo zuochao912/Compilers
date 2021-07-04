@@ -5,6 +5,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Stack;
 
+import javax.sql.rowset.RowSetMetaDataImpl;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.misc.NotNull;
@@ -14,7 +15,7 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import org.antlr.v4.semantics.SymbolChecks;
 
 class Symtable{
-	public Map<String, String> map;  //符号项目，符号名:类型名
+	public Map<String, String> map;  //符号项目，符号名:类型名,其实这里应该改成“Node”节点才是合理的，但先解决别的问题
 	public ArrayList<Symtable> children;  //儿子节点
 	public Map <String, Integer > index; //映射函数名,符号名:在children的下标
 	public Symtable parent;  //父亲表
@@ -84,6 +85,37 @@ class FuncSymtable extends Symtable{
 		isdefined=defined; //声明为false，定义为true
 	}
 	
+}
+
+class node{
+	//作为符号表中的变量
+	public String type; //符号类型,由于不对函数作类型检查，所以不单独设立函数的了
+	public node(String mytype) {
+		type=mytype;
+	}
+}
+
+class arrnode extends node{
+	public int dim;
+	public int totalsize;
+	public ArrayList<Integer> dimList;
+	public arrnode(String mytype) {
+		super(mytype);
+		// TODO Auto-generated constructor stub
+		dimList=new ArrayList<Integer>();
+	}
+	public void setdim(int i) {
+		dim=i;
+	}
+	public void setdimval(int val) {
+		dimList.add(val);
+	}
+	public void calsize() {
+		totalsize=1;
+		for(int i=0;i<dimList.size();i++) {
+			totalsize*=dimList.get(i);
+		}
+	}
 }
 
 class MyNode {
@@ -168,9 +200,9 @@ public class realListener extends CBaseListener{
 				System.out.println("Error!\nThe node in the stack is "+result.typename+" op: "+result.operation);
 			}
 		}
-		IrGenerator IR=new IrGenerator(rootTable);
-		System.out.println("\n\nGenerating IR!");
-		IR.Generate(result);
+		//IrGenerator IR=new IrGenerator(rootTable);
+		//System.out.println("\n\nGenerating IR!");
+		//IR.Generate(result);
 	}
 
 	//我认为blockitem不用入栈，只需要把blockitemlist和statement入栈就行了
@@ -324,24 +356,24 @@ public class realListener extends CBaseListener{
 	@Override public void enterForDeclaration(@NotNull CParser.ForDeclarationContext ctx) {
 		MyNode tmpNode=new MyNode("Loop","fordeclar");//for循环的开头
 		store.add(tmpNode);
-		Symtable tmptable=new Symtable("forloop");
+		/*Symtable tmptable=new Symtable("forloop");
 		curTable.addTable(tmptable);
 		curTable=tmptable;
-		curTable.curtype=ctx.typespecifier().getText();
+		curTable.curtype=ctx.typespecifier().getText();*/
 	}
 	@Override public void exitForDeclaration(@NotNull CParser.ForDeclarationContext ctx) {
-		//curTable=curTable.parent; 似乎compoundstate会代劳
+		//curTable=curTable.parent; 似乎compoundstate会代劳,因此不用
 		store.pop();
 	}
 	@Override public void enterInitequ(@NotNull CParser.InitequContext ctx) {
 		MyNode father=store.peek();
-		if(father.typename=="Loop" && father.operation=="fordeclar")
-			curTable.addEntry(ctx.directDeclarator().getText(), curTable.curtype);
+		/*if(father.typename=="Loop" && father.operation=="fordeclar")
+			curTable.addEntry(ctx.directDeclarator().getText(), curTable.curtype);*/
 	}
 	@Override public void enterInitdirec(@NotNull CParser.InitdirecContext ctx) {
 		MyNode father=store.peek();
-		if(father.typename=="Loop" && father.operation=="fordeclar")
-			curTable.addEntry(ctx.directDeclarator().getText(), curTable.curtype);
+		/*if(father.typename=="Loop" && father.operation=="fordeclar")
+			curTable.addEntry(ctx.directDeclarator().getText(), curTable.curtype);  */
 	}
 	@Override public void enterForExpression(@NotNull CParser.ForExpressionContext ctx) {
 		
@@ -426,9 +458,9 @@ public class realListener extends CBaseListener{
 				if(store.peek().operation=="Func") { //声明函数的名称
 					curTable.addEntry(curtext, "Function");
 					store.peek().funcname=curtext;
-					FuncSymtable newtable=new FuncSymtable(curtext,false);
+					/*FuncSymtable newtable=new FuncSymtable(curtext,false);
 					curTable.addTable(newtable);
-					curTable=newtable;
+					curTable=newtable;*/
 				}
 				else if(store.peek().operation=="Array")  //声明一个数组ok
 					curTable.addEntry(curtext, "Array");
@@ -447,9 +479,9 @@ public class realListener extends CBaseListener{
 				if(!rootTable.map.containsKey(curtext)) {
 					store.peek().funcname=curtext;  //保留函数名信息
 					curTable.addEntry(curtext, curTable.curtype);
-					FuncSymtable newtable=new FuncSymtable(curtext,true);
+					/*FuncSymtable newtable=new FuncSymtable(curtext,true);
 					curTable.addTable(newtable);
-					curTable=newtable;
+					curTable=newtable;*/
 				}
 				else {  //定义可覆盖声明，但是不可以覆盖定义;
 					int myindex=curTable.index.get(curtext).intValue();
@@ -457,11 +489,11 @@ public class realListener extends CBaseListener{
 					if(tmptable instanceof FuncSymtable) {
 						if( ((FuncSymtable) tmptable).isdefined) { 
 							System.out.println("Error2!Redifined Function: "+curtext);
-							curTable=tmptable;
+							//curTable=tmptable;
 						}
 						else {
-							curTable=tmptable;
-							((FuncSymtable) curTable).isdefined=true;
+							//curTable=tmptable;
+							//((FuncSymtable) curTable).isdefined=true;
 						}
 					}
 					else {
@@ -503,8 +535,8 @@ public class realListener extends CBaseListener{
 		MyNode father=store.peek();
 		//函数声明，参数表查完就退出，都需要返回
 		//System.out.println("back_to_parent");
-		if(father.typename == "Declar")
-			curTable=curTable.parent;
+		/*if(father.typename == "Declar")
+			curTable=curTable.parent;*/
 		//函数定义在退出函数体时退出
 	}
 	//进入函数定义大块
@@ -544,10 +576,10 @@ public class realListener extends CBaseListener{
 	
 	@Override public void exitDirecFunc(@NotNull CParser.DirecFuncContext ctx) {
 		MyNode tmpNode=store.pop();
-		if(curTable.map.size()==0 && tmpNode.typename=="Declar") { //用于解决无参的声明问题
+		/*if(curTable.map.size()==0 && tmpNode.typename=="Declar") { //用于解决无参的声明问题
 			//System.out.println("No member!");
 			curTable=curTable.parent;
-		}
+		}*/
 		store.peek().funcname=tmpNode.funcname;
 	}
 
@@ -577,15 +609,14 @@ public class realListener extends CBaseListener{
 		if(father.typename!="Deffunc" && father.typename!="Loop") {
 			Symtable newtable=new Symtable(String.valueOf(father.children.size()));
 			//生成一个匿名的孩子
-			curTable.addTable(newtable);
-			curTable=newtable;
+			/*curTable.addTable(newtable);
+			curTable=newtable;*/
 		}
 	}
 	
 	@Override public void exitCompoundStatement(@NotNull CParser.CompoundStatementContext ctx) {
-		//if(store.peek().typename=="Deffunc") {
-			curTable=curTable.parent;
-		//}
+			/*curTable=curTable.parent;*/
+		
 	}
 	@Override public void exitDirecArr(@NotNull CParser.DirecArrContext ctx) {
 		store.pop();
@@ -793,8 +824,21 @@ public class realListener extends CBaseListener{
 			father.children.add(last);
 		}
 	}
-
 	@Override public void exitTo_const(@NotNull CParser.To_constContext ctx) { }
+	
+	@Override public void enterTo_string(@NotNull CParser.To_stringContext ctx) {
+		MyNode father=store.peek();
+		if(father.typename!="Funcall" && father.typename!="Array") {
+			MyNode last=new MyNode("string");  
+			last.parent=father;
+			last.operation=ctx.getText();
+			father.children.add(last);
+		}
+	}
+
+	@Override public void exitTo_string(@NotNull CParser.To_stringContext ctx) { }
+	
+	
 	@Override public void enterTo_id(@NotNull CParser.To_idContext ctx) {
 		MyNode father=store.peek();
 		String id=ctx.getText();
