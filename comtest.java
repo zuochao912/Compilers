@@ -28,7 +28,9 @@ public class comtest {
 		showtree(viewr);
 		ParseTreeWalker walker = new ParseTreeWalker();
 		//step2:¥¥Ω®ParseTreeListener∫ÕParseTree
-		walker.walk(new realListener(), tree);
+		walker.walk(new realListener(), tree); 
+		/*X86Generator gen1=new X86Generator();
+		gen1.filereader("C:\\Users\\DELL\\Desktop\\±‡“Îlab8\\IR\\2.IR.txt");*/
 	}
 	private static void showtree(TreeViewer treev) {
 		// show AST in GUI
